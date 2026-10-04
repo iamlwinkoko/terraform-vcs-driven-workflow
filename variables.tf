@@ -39,3 +39,9 @@ variable "ssh_cidr_blocks" {
   type        = list(string)
   default     = []
 }
+
+variable "allowed_http_cidr_blocks" {
+  description = "CIDR ranges permitted to access HTTP"
+  type        = list(string)
+  default     = []
+}
