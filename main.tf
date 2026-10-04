@@ -1,3 +1,23 @@
+data "aws_ami" "amazon_linux" {
+  most_recent = true
+  owners      = ["amazon"]
+
+  filter {
+    name   = "name"
+    values = ["al2023-ami-2023.*-x86_64"]
+  }
+
+  filter {
+    name   = "architecture"
+    values = ["x86_64"]
+  }
+
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+}
+
 module "network" {
   source = "./modules/network"
 
@@ -21,7 +41,7 @@ module "compute" {
   source = "./modules/compute"
 
   project_name  = var.project_name
-  ami_id        = var.ami_id
+  ami_id        = data.aws_ami.amazon_linux.id
   instance_type = var.instance_type
 
   subnet_id = module.network.public_subnet_id
