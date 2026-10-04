@@ -43,5 +43,5 @@ variable "ssh_cidr_block" {
 variable "allowed_http_cidr_block" {
   description = "CIDR block permitted to access HTTP"
   type        = string
-  default     = "10.0.0.0/8"
+  default     = "0.0.0.0/0"
 }
