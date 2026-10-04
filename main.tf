@@ -33,8 +33,8 @@ module "security_group" {
   project_name = var.project_name
   vpc_id       = module.network.vpc_id
 
-  http_cidr_blocks = var.allowed_http_cidr_blocks
-  ssh_cidr_blocks  = var.ssh_cidr_blocks
+  http_cidr_block = var.allowed_http_cidr_block
+  ssh_cidr_block  = var.ssh_cidr_block
 }
 
 module "compute" {

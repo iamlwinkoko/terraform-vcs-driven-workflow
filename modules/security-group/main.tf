@@ -9,27 +9,28 @@ resource "aws_security_group" "main" {
 }
 
 resource "aws_vpc_security_group_ingress_rule" "http" {
-  for_each = toset(var.http_cidr_blocks)
-
   security_group_id = aws_security_group.main.id
-  cidr_ipv4         = each.value
-  from_port         = 80
-  to_port           = 80
-  ip_protocol       = "tcp"
+
+  cidr_ipv4   = var.http_cidr_block
+  from_port   = 80
+  to_port     = 80
+  ip_protocol = "tcp"
 }
 
 resource "aws_vpc_security_group_ingress_rule" "ssh" {
-  for_each = toset(var.ssh_cidr_blocks)
+  count = var.ssh_cidr_block != null ? 1 : 0
 
   security_group_id = aws_security_group.main.id
-  cidr_ipv4         = each.value
-  from_port         = 22
-  to_port           = 22
-  ip_protocol       = "tcp"
+
+  cidr_ipv4   = var.ssh_cidr_block
+  from_port   = 22
+  to_port     = 22
+  ip_protocol = "tcp"
 }
 
 resource "aws_vpc_security_group_egress_rule" "all" {
   security_group_id = aws_security_group.main.id
-  cidr_ipv4         = "0.0.0.0/0"
-  ip_protocol       = "-1"
+
+  cidr_ipv4   = "0.0.0.0/0"
+  ip_protocol = "-1"
 }
