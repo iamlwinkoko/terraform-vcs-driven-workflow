@@ -1,8 +1,10 @@
 # Terraform VCS-Driven Workflow
 
-A secure VCS-driven Infrastructure as Code (IaC) project using **Terraform, GitHub, HCP Terraform, AWS, OIDC, and Open Policy Agent (OPA)**.
+Sample Terraform project for a GitHub-driven AWS deployment flow using **HCP Terraform**, **OIDC-based AWS authentication**, and **OPA policy enforcement**.
 
-This project demonstrates how infrastructure changes can be managed through Git, planned and applied remotely by HCP Terraform, authenticated to AWS without long-lived access keys, and validated by mandatory OPA policies before deployment.
+This repository demonstrates a secure Infrastructure as Code workflow where infrastructure changes are reviewed through Git, planned remotely, and blocked by policy before apply if they violate security guardrails.
+
+> This is a reference implementation and sample setup. Some values in this README are illustrative and should be adapted to your own AWS account, HCP workspace, and policy configuration.
 
 ---
 
@@ -41,22 +43,20 @@ AWS
 └── EC2
 ```
 
-The workflow follows these steps:
+How it works:
 
-1. Terraform code is developed locally using VS Code.
+1. Terraform code is authored locally.
 2. Changes are committed and pushed to GitHub.
-3. GitHub triggers an HCP Terraform run through the VCS integration.
-4. HCP Terraform assumes the AWS **Plan IAM Role** using OIDC.
-5. Terraform generates an execution plan.
-6. OPA evaluates the Terraform plan against mandatory security policies.
-7. If an OPA policy fails, Terraform Apply is blocked.
-8. If all mandatory policies pass, Terraform can proceed to Apply.
-9. HCP Terraform assumes the AWS **Apply IAM Role**.
-10. Terraform creates, updates, or deletes AWS infrastructure.
+3. GitHub triggers a run in HCP Terraform.
+4. HCP Terraform authenticates to AWS through OIDC.
+5. Terraform creates a plan.
+6. OPA evaluates the plan against policy rules.
+7. If the policy fails, apply is blocked.
+8. If the policy passes, the run can proceed to apply.
 
 ---
 
-## Project Structure
+## Repository structure
 
 ```text
 terraform-vcs-driven-workflow/
@@ -65,67 +65,86 @@ terraform-vcs-driven-workflow/
 │       ├── terraform-vcs-workflow.png
 │       ├── opa-pass.png
 │       └── opa-fail.png
-│
 ├── modules/
 │   ├── compute/
 │   │   ├── main.tf
 │   │   ├── outputs.tf
 │   │   └── variables.tf
-│   │
 │   ├── network/
 │   │   ├── main.tf
 │   │   ├── outputs.tf
 │   │   └── variables.tf
-│   │
 │   └── security-group/
 │       ├── main.tf
 │       ├── outputs.tf
 │       └── variables.tf
-│
 ├── policies/
+│   ├── deny-public-ingress.rego
+│   └── restrict-instance-type.rego
 ├── .gitignore
 ├── .terraform.lock.hcl
 ├── main.tf
 ├── providers.tf
-├── terraform.tfvars
 ├── variables.tf
-└── README.md
+├── README.md
+└── .terraform/   # local Terraform cache (if created)
 ```
 
-The Terraform configuration is separated into reusable modules for networking, security groups, and compute resources.
+This project is split into reusable Terraform modules for:
+
+- networking
+- security groups
+- EC2 compute
 
 ---
 
-## Technologies
+## Prerequisites
 
-| Technology | Purpose |
-|---|---|
-| Terraform | Infrastructure as Code |
-| HCP Terraform | Remote plan, apply, state, and policy enforcement |
-| GitHub | Version control and VCS workflow |
-| AWS | Cloud infrastructure |
-| AWS IAM | Least-privilege access control |
-| OIDC | Dynamic AWS authentication |
-| Open Policy Agent | Policy as Code |
-| Rego | OPA policy language |
+Before using the repo in a real environment, make sure you have:
+
+- Terraform installed locally
+- An AWS account and target region
+- An HCP Terraform workspace connected to GitHub
+- OIDC trust configured between HCP Terraform and AWS
+- A policy set or mandatory policy in HCP Terraform
 
 ---
 
-## Terraform Modules
+## Quick start
 
-### Network
+1. Initialize the Terraform working directory:
 
-The `network` module manages the AWS networking infrastructure.
+```bash
+terraform init
+```
 
-Resources include:
+2. Review the plan:
+
+```bash
+terraform plan
+```
+
+3. Create or update your local `terraform.tfvars` values for your environment.
+
+4. Push the repo to GitHub and trigger the HCP Terraform run.
+
+5. Confirm the plan passes the required OPA policy checks before apply.
+
+---
+
+## Terraform modules
+
+### Network module
+
+The `network` module provisions:
 
 - VPC
-- Public subnet
-- Internet Gateway
-- Route table
-- Route table association
+- public subnet
+- internet gateway
+- route table
+- route table association
 
-Example network configuration:
+Example values:
 
 ```hcl
 vpc_cidr           = "10.0.0.0/16"
@@ -133,218 +152,49 @@ public_subnet_cidr = "10.0.1.0/24"
 availability_zone  = "ap-northeast-1a"
 ```
 
-### Security Group
+### Security group module
 
-The `security-group` module manages EC2 network access.
+The `security-group` module creates the EC2 security group and allows inbound traffic from a configurable CIDR.
 
-The HTTP ingress CIDR is provided through:
+Example:
 
 ```hcl
 allowed_http_cidr_block = "10.0.0.0/8"
 ```
 
-The OPA policy prevents public HTTP ingress from:
+### Compute module
 
-```text
-0.0.0.0/0
-```
+The `compute` module provisions the EC2 instance using a dynamically discovered Amazon Linux 2023 AMI.
 
-### Compute
-
-The `compute` module manages the EC2 instance.
-
-The project uses:
+Example:
 
 ```hcl
 instance_type = "t3.micro"
 ```
 
-The Amazon Linux 2023 AMI is dynamically discovered using an AWS AMI data source instead of hardcoding an AMI ID.
-
 ---
 
-## HCP Terraform
+## Security model
 
-The Terraform workspace is connected directly to the GitHub repository.
+### OIDC authentication
 
-### Workspace
+This project avoids static AWS credentials. Instead, HCP Terraform uses **OIDC** to authenticate to AWS with separate roles for Terraform plan and apply operations.
 
-```text
-terraform-vcs-driven-workflow
-```
-
-### Execution Mode
-
-```text
-Remote
-```
-
-Changes pushed to the configured Git branch automatically trigger an HCP Terraform run.
-
-```text
-git push
-   |
-   v
-GitHub
-   |
-   v
-HCP Terraform
-   |
-   +--> Plan
-   |
-   +--> OPA
-   |
-   +--> Apply
-   |
-   v
-AWS
-```
-
-Terraform state is maintained remotely by HCP Terraform.
-
----
-
-## AWS Authentication with OIDC
-
-This project does **not** use long-lived AWS access keys.
-
-HCP Terraform authenticates to AWS using **dynamic provider credentials through OIDC**.
-
-Two separate IAM roles are used:
-
-```text
-HCP Terraform
-      |
-      +------ PLAN ------> hcp-terraform-plan-role
-      |
-      └------ APPLY -----> hcp-terraform-apply-role
-```
-
-### Plan Role
-
-```text
-arn:aws:iam::541341196654:role/hcp-terraform-plan-role
-```
-
-Attached policy:
-
-```text
-HCP-Terraform-Plan-Policy
-```
-
-Purpose:
-
-- Used during Terraform Plan
-- Read/Describe AWS resources
-- Allows Terraform to determine infrastructure changes
-- Does not provide general infrastructure modification permissions
-
-### Apply Role
-
-```text
-arn:aws:iam::541341196654:role/hcp-terraform-apply-role
-```
-
-Attached policy:
-
-```text
-HCP-Terraform-Apply-Policy
-```
-
-Purpose:
-
-- Used during Terraform Apply
-- Create resources
-- Update resources
-- Delete resources
-- Read resources required during Apply
-
-This separation follows the principle of least privilege.
-
----
-
-## HCP Terraform Environment Variables
-
-The workspace uses the following environment variables:
+Typical environment variables:
 
 ```text
 TFC_AWS_PROVIDER_AUTH=true
-
-TFC_AWS_PLAN_ROLE_ARN=arn:aws:iam::541341196654:role/hcp-terraform-plan-role
-
-TFC_AWS_APPLY_ROLE_ARN=arn:aws:iam::541341196654:role/hcp-terraform-apply-role
+TFC_AWS_PLAN_ROLE_ARN=arn:aws:iam::123456789012:role/hcp-terraform-plan-role
+TFC_AWS_APPLY_ROLE_ARN=arn:aws:iam::123456789012:role/hcp-terraform-apply-role
 ```
 
 No `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY` is required.
 
----
+### OPA policy enforcement
 
-## OIDC Authentication Flow
+The repository includes a policy to block public ingress from `0.0.0.0/0`.
 
-```text
-HCP Terraform
-      |
-      | OIDC token
-      v
-AWS IAM OIDC Provider
-      |
-      +--------------------------+
-      |                          |
-      v                          v
-Plan Role                    Apply Role
-      |                          |
-      v                          v
-Plan Policy                  Apply Policy
-      |                          |
-Read / Describe          Create / Update / Delete
-```
-
-The IAM role trust policies restrict access to the expected HCP Terraform organization, project, workspace, and run phase.
-
----
-
-# OPA Policy Enforcement
-
-Open Policy Agent is used as a security gate between **Terraform Plan** and **Terraform Apply**.
-
-```text
-Terraform Plan
-      |
-      v
-OPA Policy Check
-      |
-      +------ PASS ------> Terraform Apply
-      |
-      └------ FAIL ------> Apply Blocked
-```
-
-The OPA policy is configured as a **Mandatory** policy in HCP Terraform.
-
-Therefore, a failed policy prevents infrastructure changes from being applied.
-
----
-
-## Policy: Block Public HTTP Ingress
-
-The security policy prevents security group ingress rules from allowing:
-
-```text
-0.0.0.0/0
-```
-
-The policy evaluates planned resources of type:
-
-```text
-aws_vpc_security_group_ingress_rule
-```
-
-and checks:
-
-```rego
-resource.change.after.cidr_ipv4 == "0.0.0.0/0"
-```
-
-Example policy:
+The actual policy is in [policies/deny-public-ingress.rego](policies/deny-public-ingress.rego):
 
 ```rego
 package terraform.security.public_ingress
@@ -353,7 +203,6 @@ import input.plan as plan
 
 deny := [msg |
     resource := plan.resource_changes[_]
-
     resource.type == "aws_vpc_security_group_ingress_rule"
     resource.change.after.cidr_ipv4 == "0.0.0.0/0"
 
@@ -364,144 +213,21 @@ deny := [msg |
 ]
 ```
 
-HCP Terraform query:
+The HCP Terraform query used to evaluate it is:
 
 ```text
 data.terraform.security.public_ingress.deny
 ```
 
----
+This means even a valid Terraform plan can be rejected before apply if it violates the required policy.
 
-# OPA Policy Test Results
-
-The mandatory OPA policy was tested with both an allowed CIDR and a prohibited public CIDR.
-
-## Test 1 — Private HTTP Ingress
-
-Terraform configuration:
-
-```hcl
-allowed_http_cidr_block = "10.0.0.0/8"
-```
-
-Terraform planned the security group ingress rule with:
-
-```text
-cidr_ipv4   = "10.0.0.0/8"
-from_port   = 80
-to_port     = 80
-ip_protocol = "tcp"
-```
-
-### Result
-
-> **OPA Policy: PASSED ✅**
-
-![OPA Policy Passed](docs/images/opa-pass.png)
-
-Because `10.0.0.0/8` does not violate the public-ingress policy, HCP Terraform allows the run to continue.
-
-```text
-10.0.0.0/8
-     |
-     v
-Terraform Plan
-     |
-     v
-OPA Policy
-     |
-     v
-PASS
-     |
-     v
-Apply Allowed
-```
+> Example pass result: ![OPA Policy Passed](docs/images/opa-pass.png)
+>
+> Example fail result: ![OPA Policy Failed](docs/images/opa-fail.png)
 
 ---
 
-## Test 2 — Public HTTP Ingress
-
-The configuration was then changed to:
-
-```hcl
-allowed_http_cidr_block = "0.0.0.0/0"
-```
-
-Terraform successfully generated the execution plan.
-
-However, the OPA policy detected the prohibited public ingress rule.
-
-### Result
-
-> **OPA Policy: FAILED ❌**
-
-![OPA Policy Failed](docs/images/opa-fail.png)
-
-Because the policy is configured as **Mandatory**, HCP Terraform stopped the run before Apply.
-
-```text
-0.0.0.0/0
-     |
-     v
-Terraform Plan
-     |
-     v
-OPA Policy
-     |
-     v
-FAIL
-     |
-     X
-Terraform Apply
-BLOCKED
-```
-
-This demonstrates that infrastructure can successfully pass Terraform validation and planning while still being prevented from deployment by an organizational security policy.
-
----
-
-## EC2 Instance Type Guardrail
-
-The project also targets the following EC2 instance type:
-
-```text
-t3.micro
-```
-
-An additional OPA guardrail can enforce:
-
-```text
-aws_instance.instance_type == "t3.micro"
-```
-
-Any planned EC2 instance using another instance type can therefore be rejected before Terraform Apply.
-
----
-
-## Terraform Provider
-
-The AWS provider is configured in the root module:
-
-```hcl
-terraform {
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "6.67.0"
-    }
-  }
-}
-
-provider "aws" {
-  region = var.aws_region
-}
-```
-
-No static AWS credentials are configured in the provider.
-
----
-
-## Example Configuration
+## Example configuration
 
 Example `terraform.tfvars`:
 
@@ -521,128 +247,63 @@ allowed_http_cidr_block = "10.0.0.0/8"
 
 ---
 
-## VCS Workflow
+## HCP Terraform workflow
 
-Changes are deployed through Git instead of manually running production applies from a developer machine.
-
-```bash
-git add .
-git commit -m "update infrastructure"
-git push
-```
-
-The push triggers the HCP Terraform workflow:
+This repo is designed for a remote execution model in HCP Terraform.
 
 ```text
-Commit
+git push
    |
    v
 GitHub
    |
    v
-Terraform Plan
+HCP Terraform
+   |
+   +--> Plan
+   |
+   +--> OPA check
+   |
+   +--> Apply (if allowed)
    |
    v
-OPA Policy Check
-   |
-   +---- Failed ----> STOP
-   |
-   └---- Passed
-          |
-          v
-     Terraform Apply
-          |
-          v
-         AWS
+AWS
 ```
+
+The intent is to keep Terraform state and execution logic in a controlled remote workflow rather than running production applies from a developer machine.
 
 ---
 
-## Destroying Infrastructure
+## Security notes
 
-Infrastructure should be destroyed through the HCP Terraform workspace so that the operation uses the same remote Terraform state and AWS dynamic credentials.
+This project demonstrates several important controls:
 
-The destroy workflow is:
-
-```text
-HCP Terraform
-      |
-      v
-Destroy Plan
-      |
-      v
-Policy / Run Checks
-      |
-      v
-AWS Apply Role
-      |
-      v
-Destroy Managed AWS Resources
-```
-
-Always review the destroy plan before confirming the operation.
-
-Destroying the infrastructure does not require deleting the HCP Terraform workspace.
-
----
-
-## Security Practices
-
-This project demonstrates several Terraform and cloud security practices:
-
-- Infrastructure as Code
 - Git-based change management
-- Remote Terraform execution
-- Remote Terraform state
-- No long-lived AWS access keys
-- OIDC workload identity
-- Separate Plan and Apply IAM roles
-- Least-privilege IAM policies
-- Mandatory Policy as Code enforcement
-- Public ingress protection
-- EC2 instance-type restrictions
-- Modular Terraform configuration
+- remote Terraform execution
+- OIDC-based AWS authentication
+- separate plan/apply IAM roles
+- least-privilege access
+- mandatory policy enforcement
+- blocked public ingress
+- modular infrastructure design
 
----
-
-## Key Security Controls
-
-| Control | Implementation |
-|---|---|
-| AWS authentication | OIDC dynamic credentials |
-| Plan permissions | `hcp-terraform-plan-role` |
-| Apply permissions | `hcp-terraform-apply-role` |
-| Public ingress | Blocked by OPA |
-| EC2 instance type | Restricted to `t3.micro` |
-| Terraform state | HCP Terraform remote state |
-| Infrastructure changes | Git/VCS driven |
-| Policy enforcement | Mandatory OPA policy |
+There is also a placeholder policy file for instance-type restrictions in [policies/restrict-instance-type.rego](policies/restrict-instance-type.rego), which can be completed and enabled if you want an additional EC2 guardrail.
 
 ---
 
 ## Summary
 
-This project demonstrates a secure Terraform VCS-driven deployment workflow:
+This repository is a practical example of a secure Terraform delivery workflow:
 
 ```text
-Code
-  ↓
-GitHub
-  ↓
-HCP Terraform
-  ↓
-Terraform Plan
-  ↓
-OPA Security Policy
-  ↓
-Terraform Apply
-  ↓
-AWS
+Code -> GitHub -> HCP Terraform -> Plan -> OPA -> Apply -> AWS
 ```
 
-The main security principle is:
+The main idea is simple:
 
-> **A valid Terraform configuration is not automatically an approved infrastructure change.**
+> A valid Terraform plan is not automatically an approved infrastructure change.
+
+Policy checks are used to decide whether a change is allowed to reach AWS.
 
 Terraform determines **what will change**, while OPA determines **whether that change is allowed**.
 
